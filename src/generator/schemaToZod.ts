@@ -118,31 +118,63 @@ const emitEnum = (values: unknown[]): string => {
   return `z.union([${present.map((v) => `z.literal(${literal(v)})`).join(', ')}])`;
 };
 
-const emitString = (schema: SchemaObject): string => {
+type NumericKeyword =
+  | 'minLength'
+  | 'maxLength'
+  | 'minimum'
+  | 'maximum'
+  | 'exclusiveMinimum'
+  | 'exclusiveMaximum'
+  | 'multipleOf'
+  | 'minItems'
+  | 'maxItems';
+
+/**
+ * A constraint value as a code literal, or undefined when absent or invalid.
+ * Spec values are untrusted: anything other than a finite number is skipped
+ * with a warning, so it can never be spliced into the generated source.
+ */
+const numericLiteral = (schema: SchemaObject, keyword: NumericKeyword, state: WalkState): string | undefined => {
+  const value: unknown = schema[keyword];
+  if (value === undefined || (typeof value === 'boolean' && keyword.startsWith('exclusive'))) return undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return JSON.stringify(value);
+  state.ctx.warnings.push(`${state.location || '<root>'}: ignored ${keyword} with non-numeric value ${JSON.stringify(value)}`);
+  return undefined;
+};
+
+const emitString = (schema: SchemaObject, state: WalkState): string => {
   let code = (schema.format && STRING_FORMAT_FACTORIES[schema.format]) || 'z.string()';
-  if (schema.minLength !== undefined) code += `.min(${schema.minLength})`;
-  if (schema.maxLength !== undefined) code += `.max(${schema.maxLength})`;
+  const minLength = numericLiteral(schema, 'minLength', state);
+  const maxLength = numericLiteral(schema, 'maxLength', state);
+  if (minLength !== undefined) code += `.min(${minLength})`;
+  if (maxLength !== undefined) code += `.max(${maxLength})`;
   if (schema.pattern) code += `.regex(new RegExp(${literal(schema.pattern)}))`;
   return code;
 };
 
 const emitNumber = (schema: SchemaObject, integer: boolean, state: WalkState): string => {
   let code = state.coerce ? (integer ? 'z.coerce.number().int()' : 'z.coerce.number()') : integer ? 'z.int()' : 'z.number()';
-  const { minimum, maximum, exclusiveMinimum, exclusiveMaximum } = schema;
+  const minimum = numericLiteral(schema, 'minimum', state);
+  const maximum = numericLiteral(schema, 'maximum', state);
+  const exclusiveMinimum = numericLiteral(schema, 'exclusiveMinimum', state);
+  const exclusiveMaximum = numericLiteral(schema, 'exclusiveMaximum', state);
+  const multipleOf = numericLiteral(schema, 'multipleOf', state);
   // OpenAPI 3.0: boolean exclusive flags modify minimum/maximum. 3.1: numeric bounds.
-  if (minimum !== undefined) code += exclusiveMinimum === true ? `.gt(${minimum})` : `.min(${minimum})`;
-  if (typeof exclusiveMinimum === 'number') code += `.gt(${exclusiveMinimum})`;
-  if (maximum !== undefined) code += exclusiveMaximum === true ? `.lt(${maximum})` : `.max(${maximum})`;
-  if (typeof exclusiveMaximum === 'number') code += `.lt(${exclusiveMaximum})`;
-  if (schema.multipleOf !== undefined) code += `.multipleOf(${schema.multipleOf})`;
+  if (minimum !== undefined) code += schema.exclusiveMinimum === true ? `.gt(${minimum})` : `.min(${minimum})`;
+  if (exclusiveMinimum !== undefined) code += `.gt(${exclusiveMinimum})`;
+  if (maximum !== undefined) code += schema.exclusiveMaximum === true ? `.lt(${maximum})` : `.max(${maximum})`;
+  if (exclusiveMaximum !== undefined) code += `.lt(${exclusiveMaximum})`;
+  if (multipleOf !== undefined) code += `.multipleOf(${multipleOf})`;
   return code;
 };
 
 const emitArray = (schema: SchemaObject, state: WalkState): string => {
   const items = schema.items ? emitSchema(schema.items, child(state, `${state.location}[]`)) : 'z.unknown()';
   let code = `z.array(${items})`;
-  if (schema.minItems !== undefined) code += `.min(${schema.minItems})`;
-  if (schema.maxItems !== undefined) code += `.max(${schema.maxItems})`;
+  const minItems = numericLiteral(schema, 'minItems', state);
+  const maxItems = numericLiteral(schema, 'maxItems', state);
+  if (minItems !== undefined) code += `.min(${minItems})`;
+  if (maxItems !== undefined) code += `.max(${maxItems})`;
   if (schema.uniqueItems) {
     code +=
       ".refine((items) => new Set(items.map((item) => JSON.stringify(item))).size === items.length, { message: 'Items must be unique' })" +
@@ -229,7 +261,7 @@ const emitByType = (schema: SchemaObject, type: string | undefined, state: WalkS
   switch (type) {
     case 'string':
       if (schema.format === 'binary') return 'z.unknown() /* format: binary */';
-      return emitString(schema);
+      return emitString(schema, state);
     case 'number':
       return emitNumber(schema, false, state);
     case 'integer':

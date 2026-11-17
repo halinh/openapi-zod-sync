@@ -19,4 +19,5 @@ All notable changes to this project are documented here. The format follows [Kee
 
 ### Fixed
 
+- Security: `generate` no longer lets a crafted spec inject code into the generated source. Spec text placed in comments (`info.title`, `info.version`, media types, summaries) has line terminators removed and `*/` escaped. Numeric constraints (`minLength`, `maximum`, `multipleOf`, …) are emitted only when they are finite numbers; any other value is skipped with a warning.
 - `CONSTRAINT_MISMATCH`: inclusive and exclusive numeric bounds (`minimum`/`exclusiveMinimum`, `maximum`/`exclusiveMaximum`) are compared as one bound. Equivalent integer bounds such as `minimum: 1` and `.positive()` no longer report drift, each bound reports at most one issue, and severity follows the stricter/looser rule (for example, `exclusiveMinimum: 0` against `.min(0)` is now a warning, not an error).

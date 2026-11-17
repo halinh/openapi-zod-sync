@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createJiti } from 'jiti';
 import { describe, expect, it } from 'vitest';
@@ -118,6 +118,54 @@ describe('generateFromSpec', () => {
     expect(content).not.toContain('export type');
     expect(content).not.toContain('export const operations');
     expect(content).toContain('.meta({ openapi: { operationId: "getPet", part: "params" } })');
+  });
+
+  describe('untrusted spec text never becomes code', () => {
+    // Each payload sets this global if it escapes into executable code.
+    const PWNED = '__openapiZodSyncPwned';
+    const payload = `(globalThis as Record<string, unknown>).${PWNED} = true`;
+
+    const generateAndImport = async (document: OpenApiDocument): Promise<{ content: string; warnings: string[] }> => {
+      const result = generateFromSpec(await loadSpec(document, { validate: false }));
+      const dir = tempDir('untrusted');
+      const file = join(dir, 'schemas.ts');
+      writeFileSync(file, result.files[0]!.content);
+      delete (globalThis as Record<string, unknown>)[PWNED];
+      await createJiti(import.meta.url, { moduleCache: false }).import(file);
+      return { content: result.files[0]!.content, warnings: result.warnings };
+    };
+
+    const operationDoc = (responses: Record<string, unknown>, info = { title: 't', version: '1' }): OpenApiDocument =>
+      ({ openapi: '3.1.0', info, paths: { '/a': { get: { operationId: 'getA', responses } } } }) as unknown as OpenApiDocument;
+    const json = (schema: SchemaObject): Record<string, unknown> => ({
+      '200': { description: 'ok', content: { 'application/json': { schema } } },
+    });
+
+    it('escapes line terminators in info.title and info.version', async () => {
+      for (const terminator of ['\n', '\r', '\u2028', '\u2029']) {
+        const info = { title: `x${terminator}${payload}${terminator}//`, version: `1${terminator}${payload}` };
+        await generateAndImport(operationDoc(json({ type: 'string' }), info));
+        expect((globalThis as Record<string, unknown>)[PWNED]).toBeUndefined();
+      }
+    });
+
+    it('escapes comment terminators in media types', async () => {
+      const responses = { '200': { description: 'ok', content: { [`application/json */ ${payload} /*`]: { schema: { type: 'string' } } } } };
+      await generateAndImport(operationDoc(responses));
+      expect((globalThis as Record<string, unknown>)[PWNED]).toBeUndefined();
+    });
+
+    it('skips non-numeric constraint values with a warning', async () => {
+      const keywords = ['minLength', 'maxLength', 'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf', 'minItems', 'maxItems'];
+      for (const keyword of keywords) {
+        const type = keyword.endsWith('Items') ? 'array' : keyword.endsWith('Length') ? 'string' : 'number';
+        const schema = { type, [keyword]: `1).refine(() => (${payload}, true)` } as unknown as SchemaObject;
+        const { content, warnings } = await generateAndImport(operationDoc(json(schema)));
+        expect((globalThis as Record<string, unknown>)[PWNED]).toBeUndefined();
+        expect(content).not.toContain('refine(() =>');
+        expect(warnings.some((w) => w.includes(keyword))).toBe(true);
+      }
+    });
   });
 
   it('splits output by tag with cross-file imports', async () => {
