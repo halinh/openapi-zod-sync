@@ -1,0 +1,12 @@
+node_modules/
+dist/
+coverage/
+tests/.tmp/
+*.log
+.DS_Store
+
+.claude/
+CLAUDE.md
+graphify-out/
+docs/
+

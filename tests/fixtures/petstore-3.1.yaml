@@ -1,0 +1,198 @@
+openapi: 3.1.0
+info:
+  title: Petstore
+  version: 1.0.0
+tags:
+  - name: pets
+  - name: store
+paths:
+  /pets:
+    get:
+      operationId: listPets
+      tags: [pets]
+      summary: List all pets
+      parameters:
+        - name: limit
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+        - name: status
+          in: query
+          schema: { $ref: '#/components/schemas/PetStatus' }
+        - name: includeArchived
+          in: query
+          schema: { type: boolean }
+        - name: X-Request-Id
+          in: header
+          required: true
+          schema: { type: string, format: uuid }
+      responses:
+        '200':
+          description: A page of pets
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/Pet' }
+                  total: { type: integer, minimum: 0 }
+                  next: { type: [string, 'null'], format: uri }
+        default:
+          $ref: '#/components/responses/Error'
+    post:
+      operationId: createPet
+      tags: [pets]
+      summary: Create a pet
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Pet' }
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+        '400':
+          $ref: '#/components/responses/Error'
+  /pets/{petId}:
+    parameters:
+      - name: petId
+        in: path
+        required: true
+        schema: { type: integer, minimum: 1 }
+    get:
+      operationId: getPet
+      tags: [pets]
+      responses:
+        '200':
+          description: The pet
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Pet' }
+        '404':
+          $ref: '#/components/responses/Error'
+    delete:
+      tags: [pets]
+      responses:
+        '204':
+          description: Deleted
+  /store/orders:
+    post:
+      operationId: placeOrder
+      tags: [store]
+      requestBody:
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/Order' }
+      responses:
+        '200':
+          description: Order placed
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Order' }
+  /categories:
+    get:
+      operationId: listCategories
+      tags: [store]
+      responses:
+        '200':
+          description: Category tree
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Category' }
+components:
+  responses:
+    Error:
+      description: Error
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    PetStatus:
+      type: string
+      enum: [available, pending, sold]
+    Pet:
+      type: object
+      description: A pet in the store
+      required: [id, name, status]
+      properties:
+        id: { type: integer, minimum: 1, readOnly: true }
+        name: { type: string, minLength: 1, maxLength: 50 }
+        status: { $ref: '#/components/schemas/PetStatus' }
+        tags:
+          type: array
+          items: { type: string }
+          maxItems: 10
+          uniqueItems: true
+        birthDate: { type: string, format: date }
+        weightKg: { type: number, exclusiveMinimum: 0 }
+        owner:
+          anyOf:
+            - $ref: '#/components/schemas/Owner'
+            - type: 'null'
+        metadata:
+          type: object
+          additionalProperties: { type: string }
+    Owner:
+      type: object
+      required: [email]
+      properties:
+        email: { type: string, format: email }
+        phone: { type: string, pattern: '^\+[0-9]{6,15}$' }
+    Order:
+      type: object
+      required: [petId, quantity, payment]
+      properties:
+        id: { type: string, format: uuid, readOnly: true }
+        petId: { type: integer }
+        quantity: { type: integer, minimum: 1, multipleOf: 1 }
+        shipDate: { type: string, format: date-time }
+        payment:
+          oneOf:
+            - $ref: '#/components/schemas/CardPayment'
+            - $ref: '#/components/schemas/BankPayment'
+          discriminator:
+            propertyName: method
+        complete: { type: boolean, default: false }
+    CardPayment:
+      type: object
+      required: [method, cardNumber]
+      properties:
+        method: { const: card }
+        cardNumber: { type: string, minLength: 12, maxLength: 19, writeOnly: true }
+    BankPayment:
+      type: object
+      required: [method, iban]
+      properties:
+        method: { const: bank }
+        iban: { type: string }
+    Category:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        children:
+          type: array
+          items: { $ref: '#/components/schemas/Category' }
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code: { type: integer }
+        message: { type: string }
+        details:
+          allOf:
+            - $ref: '#/components/schemas/ErrorBase'
+            - type: object
+              properties:
+                field: { type: string }
+    ErrorBase:
+      type: object
+      properties:
+        hint: { type: string }

@@ -1,0 +1,71 @@
+{
+  "name": "openapi-zod-sync",
+  "version": "0.1.0",
+  "description": "Keep your OpenAPI contracts and Zod schemas in sync: generate Zod from OpenAPI and detect drift.",
+  "keywords": [
+    "openapi",
+    "zod",
+    "swagger",
+    "schema",
+    "validation",
+    "codegen",
+    "contract-testing",
+    "drift",
+    "claude-code"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "bin": {
+    "openapi-zod-sync": "./dist/cli.js"
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist",
+    "skills",
+    "README.md",
+    "LICENSE"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "prepublishOnly": "npm run typecheck && npm test && npm run build"
+  },
+  "peerDependencies": {
+    "zod": "^4.0.0"
+  },
+  "dependencies": {
+    "@apidevtools/swagger-parser": "^12.1.0",
+    "commander": "^14.0.0",
+    "jiti": "^2.4.0",
+    "picocolors": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "openapi-types": "^12.1.3",
+    "tsup": "^8.0.0",
+    "typescript": "^5.6.0",
+    "vitest": "^3.0.0",
+    "zod": "^4.0.0"
+  }
+}
