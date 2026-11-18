@@ -1,0 +1,59 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'LICENSE']
+  workflow_dispatch:
+
+# Cancel superseded runs on the same branch/PR to save free-plan minutes.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [20, 22] # minimum supported (engines) + current LTS
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+      - name: Smoke-test the built CLI
+        run: node dist/cli.js --version
+
+      - name: Built CLI detects the planted Petstore drift
+        working-directory: examples/petstore
+        run: |
+          set +e
+          node ../../dist/cli.js check --format markdown --out ../../sync-report.md
+          code=$?
+          set -e
+          # The example contains deliberate drift: exit 1 is the expected result.
+          if [ "$code" -ne 1 ]; then
+            echo "::error::expected exit code 1 (drift found), got $code"
+            exit 1
+          fi
+
+      - name: Drift report in job summary
+        if: always() && matrix.node == 22 && hashFiles('sync-report.md') != ''
+        run: cat sync-report.md >> "$GITHUB_STEP_SUMMARY"
